@@ -488,13 +488,24 @@ function buildMenu() {
   const caps = menuState.capabilities || {};
   lastMenuShortcuts = JSON.stringify(B);
 
+  /* One handler per key: the page.
+ 
+     Every accelerator below is display-only (`registerAccelerator: false`).
+     A registered accelerator and the page's own keydown handler both fire on
+     one keypress on this stack - the menu opens the dialog AND the page opens
+     it, a toggle flips twice and looks dead - which is exactly how O opened
+     two dialogs while P and A appeared to do nothing. The page owns every key
+     in every build, so the menu names the key and never answers it. The two
+     role items at the bottom of View are the exception: no page binding exists
+     for them, so there is nothing to double with. */
+  const show = (id) => ({ accelerator: accelFor(B, id), registerAccelerator: false });
+
   const template = [
     {
       label: 'File',
       submenu: [
-        { label: 'Open Files', accelerator: accelFor(B, 'open'), click: send('open-files') },
-        { label: 'Add Files', accelerator: accelFor(B, 'addFiles'), click: send('add-files') },
-        { label: 'Add Folder', accelerator: accelFor(B, 'addFolder'), click: send('add-folder'), enabled: !!caps.openFolder },
+        { label: 'Open Files', ...show('open'), click: send('open-files') },
+        { label: 'Add Folder', ...show('addFolder'), click: send('add-folder'), enabled: !!caps.openFolder },
         { type: 'separator' },
         {
           label: 'Clear Playlist',
@@ -506,6 +517,7 @@ function buildMenu() {
              documented key also worked, because the page handled it, which is
              exactly why nobody could tell the two apart until the keys moved. */
           accelerator: accelFor(B, 'clear'),
+          registerAccelerator: false,
           click: send('clear-playlist'),
           /* Only where a playlist can outlive the session. A clear button that
              throws everything away for nothing is worse than no clear button. */
@@ -516,46 +528,41 @@ function buildMenu() {
       ],
     },
     {
+      /* Undo is the whole Edit menu. Transport controls lived here - Play,
+         Previous, Next - which is why this menu read like a second Playback:
+         they belong there (VLC's Playback holds exactly this), and Edit holds
+         the one thing that undoes, on every platform. */
       label: 'Edit',
       submenu: [
-        {
-          label: 'Play / Pause',
-          accelerator: accelFor(B, 'playPause'),
-          /* Registered as an accelerator rather than handled here, because the
-             page already owns Space and owns it correctly - including the rule
-             that a focused control gets it first. Two handlers would fire. */
-          registerAccelerator: true,
-          click: send('play-pause'),
-        },
-        { label: 'Previous', accelerator: accelFor(B, 'previous'), registerAccelerator: true, click: send('previous') },
-        { label: 'Next', accelerator: accelFor(B, 'next'), registerAccelerator: true, click: send('next') },
-        /* No Settings here. It is a top-level item of its own - that was the
-           decision, not an accident - and giving it a second accelerator in a
-           submenu registered CmdOrCtrl+, twice. Electron keeps the last
-           registration, so the Edit copy was unreachable and the menu showed the
-           same key on two items. */
+        { label: 'Undo Clear', ...show('undo'), click: send('undo') },
       ],
     },
     {
       label: 'View',
       submenu: [
-        { label: 'Show Playlist', accelerator: accelFor(B, 'panel'), click: send('toggle-panel') },
-        { label: 'Show Controls', accelerator: accelFor(B, 'controls'), click: send('toggle-controls') },
+        { label: 'Show Playlist', ...show('panel'), click: send('toggle-panel') },
+        { label: 'Show Controls', ...show('controls'), click: send('toggle-controls') },
         { type: 'separator' },
-        { label: 'Default', accelerator: accelFor(B, 'fitDefault'), click: send('fit-contain') },
-        { label: 'Crop', accelerator: accelFor(B, 'fitCrop'), click: send('fit-cover') },
-        { label: 'Stretch', accelerator: accelFor(B, 'fitStretch'), click: send('fit-stretch') },
+        { label: 'Default', ...show('fitDefault'), click: send('fit-contain') },
+        { label: 'Crop', ...show('fitCrop'), click: send('fit-cover') },
+        { label: 'Stretch', ...show('fitStretch'), click: send('fit-stretch') },
         { type: 'separator' },
-        { label: 'Enter Fullscreen', accelerator: accelFor(B, 'fullscreen'), click: send('fullscreen') },
+        { label: 'Enter Fullscreen', ...show('fullscreen'), click: send('fullscreen') },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
       ],
     },
     {
+      /* The transport lives here, not in Edit: Play, Previous and Next are
+         playback, and every player puts them there (VLC's Playback holds
+         exactly this). */
       label: 'Playback',
       submenu: [
-        {
+        { label: 'Play / Pause', ...show('playPause'), click: send('play-pause') },
+        { label: 'Previous', ...show('previous'), click: send('previous') },
+        { label: 'Next', ...show('next'), click: send('next') },
+        { type: 'separator' },        {
           label: 'Loop Playlist',
           /* The id is what the checkmark is set against. Without it
              `setMenuItemChecked('toggle-loop', ...)` had nothing to find and the
@@ -563,7 +570,7 @@ function buildMenu() {
              switched on. Three items and no ids anywhere in this menu. */
           id: 'toggle-loop',
           type: 'checkbox',
-          accelerator: accelFor(B, 'loop'),
+          ...show('loop'),
           checked: !!menuState.loop,
           click: toggleItem('toggle-loop'),
         },
@@ -571,7 +578,7 @@ function buildMenu() {
           label: 'Auto Start',
           id: 'toggle-autoplay',
           type: 'checkbox',
-          accelerator: accelFor(B, 'autoplay'),
+          ...show('autoplay'),
           checked: !!menuState.autoplay,
           click: toggleItem('toggle-autoplay'),
         },
@@ -582,7 +589,7 @@ function buildMenu() {
           label: 'Mute',
           id: 'toggle-mute',
           type: 'checkbox',
-          accelerator: accelFor(B, 'mute'),
+          ...show('mute'),
           checked: !!menuState.mute,
           click: toggleItem('toggle-mute'),
         },
@@ -600,7 +607,7 @@ function buildMenu() {
     },
     {
       label: 'Settings',
-      accelerator: accelFor(B, 'settings'),
+      ...show('settings'),
       click: send('settings'),
     },
   ];

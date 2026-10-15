@@ -1376,10 +1376,12 @@ function loadShortcuts() {
     const parsed = JSON.parse(raw) as Record<string, string[]>;
     /* Only keys that are still actions, and only values that are strings, so a
        hand-edited or stale file cannot put a non-key where a key belongs and
-       break every lookup. */
+       break every lookup. An empty list is not an unbinding, it is a missing
+       value: it would leave the action with no key and no way back, so it falls
+       back to the default like anything else unknown. */
     const known = new Set<string>(SHORTCUTS.map((entry) => entry.id));
     for (const [id, keys] of Object.entries(parsed)) {
-      if (known.has(id) && Array.isArray(keys) && keys.every((k) => typeof k === 'string')) {
+      if (known.has(id) && Array.isArray(keys) && keys.length > 0 && keys.every((k) => typeof k === 'string')) {
         shortcutOverrides[id as ShortcutId] = keys;
       }
     }
@@ -1754,6 +1756,10 @@ const MENU_ACTIONS = {
     clearReturnFocus = document.activeElement as HTMLElement | null;
     askToClear();
   },
+  /* Undo had a shortcut and no menu item: the key worked and no menu said so,
+     and the one menu that should hold it - Edit - had transport controls in it
+     instead. */
+  undo: () => restoreCleared(),
   'play-pause': () => media.toggle(),
   'previous': () => step(-1),
   'next': () => step(1),
@@ -2159,10 +2165,21 @@ document.addEventListener('keydown', (e) => {
   if (isEscape && settings.isOpen()) return settings.close();
   if (isEscape && !helpModal.hidden) return setHelp(false);
 
-  /* Dialogs and form controls own the keyboard while they are up. Without this
+  /* Dialogs and text entry own the keyboard while they are up. Without this
      M muted the video behind the settings dialog, arrow keys changed the volume
-     while a <select> was open, and Space could not scroll the instructions. */
-  const typing = (e.target as HTMLElement).closest?.('input, select, textarea, [contenteditable="true"]');
+     while a <select> was open, and Space could not scroll the instructions.
+
+     Only text entry counts as typing: a focused volume slider used to swallow
+     every letter key, so P, A, O and the rest died the moment the slider had
+     been touched, until focus was clicked elsewhere. Arrows, Space and Enter
+     on a control still go to the control itself - the guards below - but a
+     letter is not a slider's business. */
+  const typing = (e.target as HTMLElement).closest?.(
+    'textarea, select, [contenteditable="true"], ' +
+    'input:not([type]), input[type="text"], input[type="search"], ' +
+    'input[type="password"], input[type="number"], input[type="email"], ' +
+    'input[type="tel"], input[type="url"]'
+  );
   if (settings.isOpen() || typing) return;
 
 

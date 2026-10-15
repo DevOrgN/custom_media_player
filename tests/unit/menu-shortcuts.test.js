@@ -54,7 +54,13 @@ describe("the desktop menu's shortcuts", () => {
   });
 
   it('names only actions that exist in the table', () => {
-    const named = [...MAIN.matchAll(/accelFor\(B, '([^']+)'\)/g)].map((m) => m[1]);
+    /* Both spellings of the same read: `accelerator: accelFor(B, id)` and the
+       display-only `...show(id)`, which calls accelFor under it. Either way the
+       key comes from the table and a reassignment reaches the menu. */
+    const named = [
+      ...MAIN.matchAll(/accelFor\(B, '([^']+)'\)/g),
+      ...MAIN.matchAll(/\.\.\.show\('([^']+)'\)/g),
+    ].map((m) => m[1]);
     expect(named.length,
       'no menu item reads the table, so the menu cannot follow a reassignment').toBeGreaterThan(10);
 

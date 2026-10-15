@@ -883,7 +883,7 @@ function loadShortcuts() {
     const parsed = JSON.parse(raw);
     const known = new Set(SHORTCUTS.map((entry) => entry.id));
     for (const [id, keys] of Object.entries(parsed)) {
-      if (known.has(id) && Array.isArray(keys) && keys.every((k) => typeof k === "string")) {
+      if (known.has(id) && Array.isArray(keys) && keys.length > 0 && keys.every((k) => typeof k === "string")) {
         shortcutOverrides[id] = keys;
       }
     }
@@ -1105,6 +1105,10 @@ const MENU_ACTIONS = {
     clearReturnFocus = document.activeElement;
     askToClear();
   }, "clear-playlist"),
+  /* Undo had a shortcut and no menu item: the key worked and no menu said so,
+     and the one menu that should hold it - Edit - had transport controls in it
+     instead. */
+  undo: /* @__PURE__ */ __name(() => restoreCleared(), "undo"),
   "play-pause": /* @__PURE__ */ __name(() => media.toggle(), "play-pause"),
   "previous": /* @__PURE__ */ __name(() => step(-1), "previous"),
   "next": /* @__PURE__ */ __name(() => step(1), "next"),
@@ -1377,7 +1381,9 @@ document.addEventListener("keydown", (e) => {
   const isEscape = k.toLowerCase() === "escape";
   if (isEscape && settings.isOpen()) return settings.close();
   if (isEscape && !helpModal.hidden) return setHelp(false);
-  const typing = e.target.closest?.('input, select, textarea, [contenteditable="true"]');
+  const typing = e.target.closest?.(
+    'textarea, select, [contenteditable="true"], input:not([type]), input[type="text"], input[type="search"], input[type="password"], input[type="number"], input[type="email"], input[type="tel"], input[type="url"]'
+  );
   if (settings.isOpen() || typing) return;
   if (media.ownsArrowKey(e.target) && k.startsWith("Arrow")) return;
   const inRow = e.target.closest?.("#list li");
