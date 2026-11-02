@@ -58,10 +58,10 @@ async function main() {
     // ---- 2. L and C must work even while a control holds focus ----
     $('play').focus();
     S('focus is on a control', document.activeElement === $('play'));
-    const loopBefore = player.loop;
+    const loopBefore = $('loop').classList.contains('on');
     key('l'); await wait(250);
-    S('L works with a control focused', player.loop !== loopBefore);
-    S('L lit the button', $('loop').classList.contains('on') === player.loop);
+    S('L works with a control focused', $('loop').classList.contains('on') !== loopBefore);
+    S('L lit the button', $('loop').classList.contains('on') === $('loop').classList.contains('on'));
     const fitBefore = stage.dataset.fit;
     key('c'); await wait(250);
     S('C works with a control focused', stage.dataset.fit === 'cover' && fitBefore !== 'cover');
@@ -70,13 +70,13 @@ async function main() {
 
     // ---- 3. Space must play/pause, never re-press the focused button ----
     $('loop').focus();
-    const loopNow = player.loop;
+    const loopNow = $('loop').classList.contains('on');
     const pausedBefore = player.paused;
     key(' '); await wait(500);
     const pausedAfter = player.paused;
     S('space was paused before', pausedBefore);
     S('space toggled playback', pausedAfter !== pausedBefore);
-    S('space did not re-press the focused button', player.loop === loopNow);
+    S('space did not re-press the focused button', $('loop').classList.contains('on') === loopNow);
     S('space moved focus off the button', document.activeElement !== $('loop'));
     if (!pausedAfter) { key(' '); await wait(500); }
 

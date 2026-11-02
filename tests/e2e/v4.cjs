@@ -66,10 +66,10 @@ async function main() {
     if (!v().paused) { key(' '); await wait(500); }
     S('l: paused before the test', v().paused);
     const tBeforeKey = v().currentTime;
-    const loop0 = player.loop;
+    const loop0 = $('loop').classList.contains('on');
     key('l');
     await wait(500);
-    S('l: loop toggled', player.loop !== loop0);
+    S('l: loop toggled', $('loop').classList.contains('on') !== loop0);
     S('l: seek delta', (v().currentTime - tBeforeKey).toFixed(2));
 
     // ---- 3. panel closes on an outside click ----

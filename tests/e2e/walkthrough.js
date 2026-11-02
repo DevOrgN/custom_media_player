@@ -506,7 +506,8 @@
        question about CSS, but whether the state reaches the class at all is a
        question about the app - and only one of those two ever gets checked. */
     say('walkthrough_fs_button_in_fullscreen',
-      `window=${during} class="${fsButton ? fsButton.className : 'no button'}"`);
+      fsButton && fsButton.classList.contains('on') === during
+        ? 'yes' : 'BROKEN - fullscreen glyph did not follow the window');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', bubbles: true }));
     await wait(600);
     const after = await invoke('is_fullscreen');
@@ -518,7 +519,8 @@
 
     const hook = window.MediaFullscreen;
     say('walkthrough_fullscreen_button_state',
-      hook ? String(hook.active === (during && !after)) : 'no shell hook');
+      hook && hook.active === after && fsButton?.classList.contains('on') === after
+        ? 'yes' : 'BROKEN - fullscreen button and window disagree');
   });   /* rejections are caught inside journey() */
 
   /* ---- 5. the controls with nothing loaded ---------------------------- */

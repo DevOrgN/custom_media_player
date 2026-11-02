@@ -12,6 +12,13 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const os = require('node:os');
+
+// Isolate even a suite launched directly, outside the production wrapper.
+const profile = fs.mkdtempSync(path.join(process.env.MT_PROFILE_ROOT || os.tmpdir(), 'mt-browser-suite-'));
+app.setPath('userData', profile);
+app.setPath('sessionData', profile);
+process.on('exit', () => fs.rmSync(profile, { recursive: true, force: true }));
 
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('disable-dev-shm-usage');

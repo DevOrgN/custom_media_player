@@ -803,11 +803,11 @@ window.__DONE = (async () => {
     await wait(300);
     ok('dialogs: only one is open at a time',
       $('settings-modal').hidden || $('help-modal').hidden);
-    click($('settings-close'));
-    await wait(200);
+    key('Escape');
+    await until(() => $('settings-modal').hidden && $('help-modal').hidden, 3000);
 
-    /* Escape closes a dialog before the panel, which is behind it. */
-    key('p');
+    /* Establish the panel state before opening the dialog. */
+    if (!$('stage').classList.contains('list')) key('p');
     await until(() => css($('side'), 'display') !== 'none', 3000);
     menu('settings');
     await until(() => !$('settings-modal').hidden, 3000);
