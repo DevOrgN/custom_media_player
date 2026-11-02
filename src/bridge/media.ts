@@ -117,7 +117,15 @@ import type { BridgeEvents } from '../types.js';
     if (!wantedUrl || live.currentSrc !== wantedUrl) return false;
     if (live.readyState < 2) return false;
     try {
-      live.play();
+      const seq = currentLoad;
+      const pending = live.play();
+      if (pending && typeof pending.catch === 'function') {
+        pending.catch((error) => {
+          if (seq !== currentLoad || error?.name === 'AbortError') return;
+          stopRescue();
+          emit('blocked', { error });
+        });
+      }
       return true;
     } catch {
       return false;
@@ -396,6 +404,14 @@ import type { BridgeEvents } from '../types.js';
     );
     el().addEventListener('ended', () => emit('ended', undefined));
     el().addEventListener('error', () => emit('error', undefined));
+    /* With <source> children, Chromium reports unsupported/corrupt media on
+       the source itself. That event does not bubble or reach Vidstack's video
+       listener, so the playlist would otherwise wait forever. */
+    el().addEventListener('error', (event) => {
+      const target = event.target as HTMLSourceElement | null;
+      if (target?.tagName !== 'SOURCE' || target.src !== wantedUrl) return;
+      emit('error', undefined);
+    }, true);
 
     /* A still image that cannot be decoded has no error handler at all
        otherwise: it shows the browser's broken-image glyph forever and the
@@ -490,7 +506,9 @@ import type { BridgeEvents } from '../types.js';
          calling play() right after swapping src is ignored until the new
          source reports its metadata, so nothing would start. */
       el().autoPlay = !!autoplay;
-      if (autoplay) el().paused = false;
+      /* Do not assign paused=false: Vidstack queues an uncaught play promise
+         in that setter. A rapid source change then leaks AbortError. The
+         per-load readiness handler above starts playback with a caught promise. */
     },
 
     /* Clearing the playlist.

@@ -16,7 +16,7 @@ import type { FileSource, MediaItem, SavedState } from '../types.js';
   /* What survives a reload. `items` is deliberately absent: the playlist holds
      blob: URLs that cannot outlive the document. Everything else is a plain
      value, and `settings` (language / colour / logo) is a nested object. */
-  const PERSISTED = ['index', 'position', 'fit', 'loop', 'volume', 'muted', 'ui', 'list', 'autoplay', 'settings'];
+  const PERSISTED = ['index', 'position', 'fit', 'loop', 'volume', 'muted', 'ui', 'list', 'autoplay', 'settings', 'shortcuts'];
 
   let picker: HTMLInputElement | null = null;
 

@@ -71,6 +71,22 @@ describe('opening files', () => {
     expect(app.player.src[0].src).toBe(playing);
   });
 
+  it('Ctrl+Shift+O appends files without interrupting playback', async () => {
+    app = await createApp();
+    await dropOnStage([VIDEO()]);
+    const source = app.player.src[0].src;
+    const open = vi.spyOn(app.window.MediaFileSource, 'openFiles').mockResolvedValue([{
+      name: 'added.mp4', mime: 'video/mp4', kind: 'video',
+      file: app.file('added.mp4', 'video/mp4'), size: 8, path: null, missing: false,
+    }]);
+    const event = app.key('o', { ctrlKey: true, shiftKey: true });
+    await app.settleAll();
+    expect(open).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(true);
+    expect(app.names()).toEqual(['a.mp4', 'added.mp4']);
+    expect(app.player.src[0].src).toBe(source);
+  });
+
   it('probes each file for a duration and a thumbnail', async () => {
     app = await createApp();
     await dropOnStage([VIDEO(), AUDIO()]);
@@ -350,7 +366,8 @@ describe('the transport', () => {
     app = await createApp();
     await dropOnStage([VIDEO(), VIDEO2()]);
     app.key('l');
-    expect(app.player.loop).toBe(true);
+    expect(app.$('loop').getAttribute('aria-pressed')).toBe('true');
+    expect(app.player.loop).toBe(false);
     app.rows()[1].dispatchEvent(new app.window.MouseEvent('click', { bubbles: true }));
     await app.settle(1);
     app.player.reachEnd();
@@ -367,6 +384,28 @@ describe('the transport', () => {
     /* it used to bounce between the two broken files forever */
     expect(app.rows()).toHaveLength(2);
     expect(app.player.src[0].src).toBe(app.urls.created[1].url);
+  });
+
+  it('stops after trying every corrupt file when playlist loop is on', async () => {
+    app = await createApp();
+    await dropOnStage([VIDEO(), VIDEO2()]);
+    app.key('l');
+    app.player.failOnLoad = true;
+    let errors = 0;
+    app.window.MediaBridge.on('error', () => { errors++; });
+    app.rows()[0].click();
+    await app.settle(30);
+    const settled = errors;
+    await app.settle(30);
+    expect(settled).toBe(2);
+    expect(errors).toBe(settled);
+    expect(app.player.paused).toBe(true);
+    expect(app.$('notice').hidden).toBe(false);
+    // A deliberate retry after fixing the file still works.
+    app.player.failOnLoad = false;
+    app.rows()[0].click();
+    await app.settle(1);
+    expect(app.player.paused).toBe(false);
   });
 
   it('an image advances on space rather than pretending to play', async () => {
@@ -540,7 +579,7 @@ describe('the keyboard', () => {
     };
     await acted('.', () => app.counter());
     await acted(',', () => app.counter());
-    await acted('l', () => player.loop);
+    await acted('l', () => app.$('loop').getAttribute('aria-pressed'));
     await acted('a', () => app.$('autoplay').getAttribute('aria-pressed'));
     await acted('m', () => player.muted);
     /* `d` is the default fit, so it is observed from another one */
@@ -611,6 +650,32 @@ describe('the keyboard', () => {
     const slider = app.document.querySelector('media-time-slider');
     slider.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
     expect(app.player.currentTime).toBe(60);
+  });
+
+  it('keeps playback shortcuts inside the instructions dialog', async () => {
+    app = await createApp();
+    await dropOnStage([VIDEO()]);
+    app.window.MediaMenu.send('info');
+    const before = { muted: app.player.muted, fit: app.stage.dataset.fit,
+      time: app.player.currentTime, volume: app.player.volume };
+    for (const key of ['m', 'c', 'ArrowRight', 'ArrowDown', ' ']) app.key(key);
+    expect({ muted: app.player.muted, fit: app.stage.dataset.fit,
+      time: app.player.currentTime, volume: app.player.volume }).toEqual(before);
+    expect(app.$('help-modal').hidden).toBe(false);
+  });
+
+  it('runs a modified custom binding and consumes its browser default', async () => {
+    app = await createApp();
+    app.key(',', { ctrlKey: true });
+    app.document.querySelector('[data-shortcut-cell="mute"]').click();
+    app.key('b', { ctrlKey: true });
+    app.key('Escape');
+    const event = new app.window.KeyboardEvent('keydown', {
+      key: 'b', ctrlKey: true, bubbles: true, cancelable: true,
+    });
+    app.document.body.dispatchEvent(event);
+    expect(app.player.muted).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it('ignores a modified key press, so browser shortcuts still work', async () => {
@@ -702,7 +767,8 @@ describe('persistence', () => {
     app = await createApp({ state: saved });
     await app.settle(1);
     expect(app.stage.dataset.fit).toBe('cover');
-    expect(app.player.loop).toBe(true);
+    expect(app.$('loop').getAttribute('aria-pressed')).toBe('true');
+    expect(app.player.loop).toBe(false);
     expect(app.player.volume).toBeCloseTo(0.4);
     expect(app.player.muted).toBe(true);
     expect(app.stage.classList.contains('ui')).toBe(false);
@@ -1123,6 +1189,19 @@ describe('defects the final audit found', () => {
        still describe bindings the user has since been shown are not defaults,
        and would grow with every action added later. */
     expect(JSON.parse(saved)).toEqual({ loop: ['B'] });
+  });
+
+  it('restores edited bindings from durable state with empty localStorage', async () => {
+    app = await createApp();
+    await rebind('mute', 'b', { ctrlKey: true });
+    const saved = app.prefs();
+    expect(saved.shortcuts).toEqual({ mute: ['Control+B'] });
+    app.close();
+    app = await createApp({ state: saved });
+    expect(app.window.localStorage.getItem('mediatools.shortcuts')).toBeNull();
+    expect(app.window.MediaMenu.bindings.mute).toEqual(['Control+B']);
+    app.key('b', { ctrlKey: true });
+    expect(app.player.muted).toBe(true);
   });
 
   it('a stored binding that names no action is ignored, not obeyed', async () => {

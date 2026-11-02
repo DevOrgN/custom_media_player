@@ -199,6 +199,7 @@ export interface SavedState {
   list?: boolean;
   autoplay?: boolean;
   settings?: Record<string, unknown>;
+  shortcuts?: Record<string, string[]>;
   /** Desktop sources only: a browser tab cannot keep these. */
   items?: MediaItem[];
 }

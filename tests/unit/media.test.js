@@ -18,6 +18,21 @@ const dropOnStage = async (files) => {
   await app.settleAll();
 };
 
+describe('native source failures', () => {
+  it('advances when a source child reports a non-bubbling error', async () => {
+    app = await createApp();
+    await dropOnStage([VIDEO(), app.file('b.mp4', 'video/mp4')]);
+    const failed = app.document.createElement('source');
+    failed.src = app.player.src[0].src;
+    app.player.append(failed);
+    failed.dispatchEvent(new app.window.Event('error'));
+    expect(app.counter()).toBe('2 / 2');
+    // A late error from the discarded source cannot skip the new item.
+    failed.dispatchEvent(new app.window.Event('error'));
+    expect(app.counter()).toBe('2 / 2');
+  });
+});
+
 describe('load sequencing', () => {
   it('a superseded provider does not apply its seek to the current item', async () => {
     app = await createApp();
@@ -170,6 +185,39 @@ describe('load sequencing', () => {
        nothing". */
     expect(app.window.MediaBridge.playing,
       'play() did not start playback: it trusted a resolved promise from the dead player transport').toBe(true);
+  });
+
+  it('handles a fallback play promise that is interrupted asynchronously', async () => {
+    app = await createApp();
+    await dropOnStage([VIDEO()]);
+    app.window.MediaBridge.pause();
+    app.player.transportGoesStale = true;
+    let attempts = 0;
+    app.player.mediaEl.play = () => {
+      attempts++;
+      return Promise.reject(Object.assign(new Error('superseded'), { name: 'AbortError' }));
+    };
+    const blocked = [];
+    app.window.MediaBridge.on('blocked', (event) => blocked.push(event));
+    app.window.MediaBridge.play();
+    await app.settle(160);
+    app.window.MediaBridge.pause();
+    expect(attempts).toBeGreaterThan(0);
+    expect(blocked).toEqual([]);
+    expect(app.errors).toEqual([]);
+  });
+
+  it('autoplay avoids the player paused setter and its unhandled play queue', async () => {
+    app = await createApp();
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(app.player), 'paused');
+    const assignments = [];
+    Object.defineProperty(app.player, 'paused', {
+      get() { return descriptor.get.call(this); },
+      set(value) { assignments.push(value); descriptor.set.call(this, value); },
+    });
+    await dropOnStage([VIDEO()]);
+    expect(assignments).toEqual([]);
+    expect(app.window.MediaBridge.playing).toBe(true);
   });
 
   it('play() does not second-guess the player mid-load, which would break track changes', async () => {

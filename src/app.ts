@@ -78,6 +78,7 @@ let dragNode: HTMLElement | null = null;
 /* One failure is allowed per track, so a playlist of unplayable files skips
    forward instead of bouncing between two broken items forever. */
 let erroredIndex = -1;
+const failedItems = new Set<MediaItem>();
 /* False until the saved state has been applied. A desktop source reads it over
    IPC, so anything added in that window would be silently overwritten by the
    restore that lands afterwards. Input is not refused - it is queued, because
@@ -399,6 +400,7 @@ function removeItem(i) {
   const wasCurrent = i === index;
   const nextIndex = i < index ? index - 1 : index;
   const removed = items[i];
+  failedItems.delete(removed);
   items.splice(i, 1);
 
   if (!items.length) {
@@ -430,6 +432,7 @@ function removeItem(i) {
 }
 
 function clearAll(keepUndo) {
+  failedItems.clear();
   /* Let go of the media FIRST, then revoke. Revoking an object URL the player
      is still pointed at is a use-after-free of the resource by construction -
      it appears to work only because the next assignment happens to abort the
@@ -476,8 +479,9 @@ function syncTimelineAvailability() {
   slider.setAttribute('aria-disabled', String(!seekable));
 }
 
-function load(i, play) {
+function load(i, play, fromError = false) {
   if (!items.length) return;
+  if (!fromError) failedItems.clear();
   index = mod(i, items.length);
   erroredIndex = -1;
   const it = items[index];
@@ -537,7 +541,9 @@ function toggleLoop() {
   loop = !loop;
   $('loop').classList.toggle('on', loop);
   syncToggleTitles();
-  media.setLoop(loop);
+  /* Native media looping suppresses ended, which would replay this track
+     forever. Playlist wrapping belongs to our ended handler below. */
+  media.setLoop(false);
   scheduleSave();
 }
 
@@ -746,6 +752,7 @@ function save() {
     ui: stage.classList.contains('ui'),
     list: stage.classList.contains('list'),
     settings: settings.save(),
+    shortcuts: shortcutOverrides,
   });
 }
 
@@ -1002,10 +1009,8 @@ media.on('ended', () => {
   scheduleSave();
 });
 
-/* An unplayable file used to call step(1) unconditionally, which wraps: N
-   broken files produced N errors in quick succession and the decoder was
-   hammered while the playlist skipped itself to the start. Advance at most
-   once per track, and only when playback is actually under way. */
+/* Skip failed files without revisiting one in the same error chain, including
+   when playlist wrapping is enabled. A deliberate selection can retry it. */
 media.on('error', () => {
   if (items.length < 2) {
     /* Nothing to fall forward to, so stop here and say why. Silently freezing
@@ -1016,9 +1021,14 @@ media.on('error', () => {
   }
   if (erroredIndex === index) return;
   erroredIndex = index;
-  const next = index + 1;
-  if (next < items.length) return load(next, autoStart);
-  if (loop) return load(0, autoStart);
+  failedItems.add(items[index]);
+  /* A loop of corrupt files must stop after each item has been tried once.
+     Manual selection or normal advancement starts a fresh attempt in load(). */
+  const limit = loop ? index + items.length : items.length;
+  for (let next = index + 1; next < limit; next++) {
+    const target = mod(next, items.length);
+    if (!failedItems.has(items[target])) return load(target, autoStart, true);
+  }
   notice(t('notice.cannotPlay'));
   media.pause();
   scheduleSave();
@@ -1355,9 +1365,8 @@ function paintShortcutLabel(id: string) {
   }
 }
 
-/* Shortcuts are saved with everything else, so a reassignment survives a
-   restart. A separate key rather than a field in prefs, because they are not a
-   preference - they are how the preferences are reached. */
+/* Keep the legacy browser key and the durable state in sync. Desktop loopback
+   ports change on restart, so localStorage alone cannot preserve bindings. */
 function saveShortcuts() {
   try {
     /* Only the overrides, not the whole table. A file that listed every action
@@ -1367,13 +1376,17 @@ function saveShortcuts() {
   } catch (err) {
     console.warn('[app] could not save the shortcuts:', err);
   }
+  // Shortcut edits are infrequent and must survive an immediate reload.
+  clearTimeout(saveTimer);
+  if (ready) save();
+  else scheduleSave();
 }
 
-function loadShortcuts() {
+function loadShortcuts(saved?: unknown) {
   try {
-    const raw = localStorage.getItem('mediatools.shortcuts');
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Record<string, string[]>;
+    const raw = saved === undefined ? localStorage.getItem('mediatools.shortcuts') : null;
+    const parsed = saved === undefined ? (raw ? JSON.parse(raw) : null) : saved;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return;
     /* Only keys that are still actions, and only values that are strings, so a
        hand-edited or stale file cannot put a non-key where a key belongs and
        break every lookup. An empty list is not an unbinding, it is a missing
@@ -2146,16 +2159,18 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (action === 'settings') {
+    e.preventDefault();
+    e.stopPropagation();
     if (settings.isOpen()) return settings.close();
     settings.toggle();
     repaintShortcutLabels();
     return;
   }
 
-  /* Every other modified key belongs to the browser or the window manager:
+  /* Unassigned modified keys belong to the browser or the window manager:
      Ctrl+R reloads, Ctrl+W closes, Alt+Tab switches. Swallowing those would
      make the app feel like it had captured the keyboard. */
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if ((e.metaKey || e.ctrlKey || e.altKey) && !action) return;
 
   /* Case-insensitive, because these three compare a name and the rest of the
      handler folds case for the table. They used to be lowercase because the key
@@ -2180,7 +2195,7 @@ document.addEventListener('keydown', (e) => {
     'input[type="password"], input[type="number"], input[type="email"], ' +
     'input[type="tel"], input[type="url"]'
   );
-  if (settings.isOpen() || typing) return;
+  if (settings.isOpen() || !helpModal.hidden || typing) return;
 
 
   /* the library's own sliders handle their arrow keys */
@@ -2194,6 +2209,8 @@ document.addEventListener('keydown', (e) => {
 
   if (isEscape && stage.classList.contains('list')) return setList(false);
   if (!action) return;
+  e.preventDefault();
+  e.stopPropagation();
 
   /* Space is play/pause even when a control still holds focus: otherwise the
      browser re-activates that button instead. Focus is only dropped for the
@@ -2236,6 +2253,7 @@ document.addEventListener('keydown', (e) => {
     case 'controls': return setUi(!stage.classList.contains('ui'));
     case 'panel': return setList(!stage.classList.contains('list'));
     case 'open': return openFiles();
+    case 'addFiles': return addFiles();
     case 'addFolder': return addFolder();
     case 'clear':
       clearReturnFocus = document.activeElement as HTMLElement | null;
@@ -2256,7 +2274,7 @@ async function restore() {
      once at the bottom of this file, before the await, so the dialog is never
      empty if it is opened early - and so the labels on the controls exist
      before the saved state arrives. */
-  loadShortcuts();
+  loadShortcuts(state?.shortcuts);
   renderShortcutTable();
 
   settings.load(state);

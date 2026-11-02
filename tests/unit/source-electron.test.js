@@ -219,10 +219,11 @@ describe('the Electron source', () => {
     new Function(MIME_SRC)();
     // eslint-disable-next-line no-new-func
     new Function(SOURCE_SRC)();
-    await window.MediaFileSourceElectron.saveState({ index: 1, position: 5, secret: 'do not keep', items: [] });
+    await window.MediaFileSourceElectron.saveState({ index: 1, position: 5, shortcuts: { mute: ['Control+B'] }, secret: 'do not keep', items: [] });
     const saved = harness.calls.find(([cmd]) => cmd === 'save-state')[1];
     expect(saved.index).toBe(1);
     expect(saved.position).toBe(5);
+    expect(saved.shortcuts).toEqual({ mute: ['Control+B'] });
     expect(saved.secret).toBeUndefined();
   });
 

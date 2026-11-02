@@ -25,7 +25,7 @@ import type { FileSource, FullscreenHook, MediaItem, SavedState } from '../types
   const { mimeFor, kindOf, baseName, isPlayable } = mime;
   const shell = window.MediaShell;
 
-  const PERSISTED = ['index', 'position', 'fit', 'loop', 'volume', 'muted', 'ui', 'list', 'autoplay', 'settings', 'items'] as const;
+  const PERSISTED = ['index', 'position', 'fit', 'loop', 'volume', 'muted', 'ui', 'list', 'autoplay', 'settings', 'shortcuts', 'items'] as const;
 
   function toItem(path: string): MediaItem {
     const name = baseName(path);

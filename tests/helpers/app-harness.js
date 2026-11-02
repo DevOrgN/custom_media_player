@@ -310,6 +310,8 @@ export function defineFakeLibrary(window) {
       this.currentTime = Math.min(this.#currentTime + seconds, end);
     }
     reachEnd() {
+      // Browsers repeat native loops without emitting ended.
+      if (this.#loop) { this.currentTime = 0; return; }
       this.currentTime = Number.isFinite(this.#duration) ? this.#duration : 0;
       /* The clip stops when it ends, and the element is where that shows. The
          two carry separate play state now, so both have to be told - otherwise
