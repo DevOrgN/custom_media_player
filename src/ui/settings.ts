@@ -155,6 +155,12 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
     logo: undefined,   // undefined = the markup default; null = removed
   };
 
+  /* Async file and image work may finish after the user has made a newer
+     choice. These counters make the latest action the only one allowed to
+     commit. */
+  let logoRevision = 0;
+  let colourRevision = 0;
+
   function applyAll(): void {
     if (prefs.lang) setLang(prefs.lang);
     if (prefs.color) setBrandColor(prefs.color);
@@ -397,12 +403,14 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
 
      It used to restore a hardcoded gold, which is why pressing it looked broken:
      the button said "use the logo colour" and produced a constant. */
-  async function useLogoColour(apply: boolean): Promise<string | null> {
+  async function useLogoColour(apply: boolean, expectedLogoRevision = logoRevision): Promise<string | null> {
     const src = currentMark();
     if (!src) return null;
+    const expectedColourRevision = colourRevision;
     const found = await colourFromImage(src);
     if (!found) return null;
     if (apply) {
+      if (expectedLogoRevision !== logoRevision || expectedColourRevision !== colourRevision) return null;
       prefs.color = found;
       setBrandColor(found);
       syncInputs();
@@ -500,6 +508,7 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
     });
 
     colorInput.addEventListener('input', () => {
+      colourRevision += 1;
       prefs.color = colorInput.value;
       setBrandColor(prefs.color);
       notifySave();
@@ -508,8 +517,10 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
     resetBtn.addEventListener('click', () => {
       /* Falls back to the built-in gold only when there is nothing to read a
          colour from, which is not a state the app can normally be in. */
+      const resetRevision = ++colourRevision;
       useLogoColour(true).then((found) => {
         if (found) return;
+        if (resetRevision !== colourRevision) return;
         prefs.color = null;
         setBrandColor(DEFAULT_LOGO_GOLD);
         syncInputs();
@@ -520,6 +531,9 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
     logoInput.addEventListener('change', async () => {
       const file = logoInput.files && logoInput.files[0];
       if (!file) return;
+      const revision = ++logoRevision;
+      /* A pending sample of the prior logo must not apply to this selection. */
+      colourRevision += 1;
       /* The logo is stored as a base64 data URL inside the same blob as the
          language, the colour and the playback position. A big image overruns
          the storage quota, and the whole write then fails silently - the app
@@ -527,6 +541,7 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
          image is downscaled to a sane size first. */
       if (file.size > 4_000_000) {
         const shrunk = await shrinkImage(file);
+        if (revision !== logoRevision) return;
         if (!shrunk) {
           showSaveError(t('settings.saveFailed'));
           logoInput.value = '';
@@ -536,11 +551,12 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
         setLogo(prefs.logo);
         syncInputs();
         notifySave();
-        await useLogoColour(true);
+        await useLogoColour(true, revision);
         return;
       }
       const reader = new FileReader();
       reader.onload = async () => {
+        if (revision !== logoRevision) return;
         prefs.logo = String(reader.result);
         setLogo(prefs.logo);
         syncInputs();
@@ -548,7 +564,7 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
         /* A new mark and a brand colour that disagrees with it look like a bug
            in one of the two, so the colour follows the mark without being
            asked. */
-        await useLogoColour(true);
+        await useLogoColour(true, revision);
       };
       reader.readAsDataURL(file);
     });
@@ -557,6 +573,8 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
       /* Removes your mark and nothing else. It used to toggle between "gone"
          and "shipped", which meant a state where the window had no mark at all
          - and then a button offering to bring back what was already showing. */
+      logoRevision += 1;
+      colourRevision += 1;
       prefs.logo = undefined;
       setLogo(prefs.logo);
       syncInputs();
@@ -588,7 +606,12 @@ import type { I18nModule, SavedState, SettingsModule } from '../types.js';
   const api: SettingsModule = {
     load, save, open, close, toggle, isOpen, wire, applyAll, setBrandColor,
     setLang: (lang: string) => { prefs.lang = lang; setLang(lang); applyAll(); },
-    setLogo: (url: string | null) => { prefs.logo = url; applyAll(); },
+    setLogo: (url: string | null) => {
+      logoRevision += 1;
+      colourRevision += 1;
+      prefs.logo = url;
+      applyAll();
+    },
     prefs,
   };
 

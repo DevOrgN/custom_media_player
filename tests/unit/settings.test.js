@@ -150,6 +150,90 @@ describe('the logo', () => {
     fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'),
   )[1];
 
+  const chooseFile = (file) => {
+    Object.defineProperty(app.$('set-logo'), 'files', { configurable: true, value: [file] });
+    app.$('set-logo').dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  };
+
+  it('ignores an older FileReader after a newer selection', async () => {
+    await openSettings();
+    const readers = [];
+    app.window.FileReader = class {
+      constructor() { readers.push(this); }
+      readAsDataURL() {}
+    };
+    chooseFile(app.file('first.png', 'image/png'));
+    chooseFile(app.file('second.png', 'image/png'));
+    readers[1].result = 'data:image/png;base64,second';
+    readers[1].onload();
+    readers[0].result = 'data:image/png;base64,first';
+    readers[0].onload();
+    expect(app.window.MediaSettings.prefs.logo).toBe('data:image/png;base64,second');
+  });
+
+  it('ignores an outstanding FileReader after Remove', async () => {
+    await openSettings({ state: { settings: { logo: 'data:image/png;base64,existing' } } });
+    let reader;
+    app.window.FileReader = class {
+      constructor() { reader = this; }
+      readAsDataURL() {}
+    };
+    chooseFile(app.file('pending.png', 'image/png'));
+    app.$('set-logo-clear').click();
+    reader.result = 'data:image/png;base64,pending';
+    reader.onload();
+    expect(app.window.MediaSettings.prefs.logo).toBeUndefined();
+    expect(logo().getAttribute('src')).toBe(SHIPPED);
+  });
+
+  it('ignores a shrinkImage result after Remove', async () => {
+    await openSettings({ state: { settings: { logo: 'data:image/png;base64,existing' } } });
+    let finishDecode;
+    app.window.Image = class {
+      naturalWidth = 1280;
+      naturalHeight = 720;
+      set src(value) { this._src = value; }
+      get src() { return this._src; }
+      decode() { return new Promise((resolve) => { finishDecode = resolve; }); }
+    };
+    chooseFile(app.file('large.png', 'image/png', 4_000_001));
+    app.$('set-logo-clear').click();
+    finishDecode();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(app.window.MediaSettings.prefs.logo).toBeUndefined();
+    expect(logo().getAttribute('src')).toBe(SHIPPED);
+  });
+
+  it('does not let pending logo sampling replace a manual colour', async () => {
+    await openSettings();
+    const images = [];
+    app.window.Image = class {
+      set src(value) { this._src = value; images.push(this); }
+      get src() { return this._src; }
+    };
+    let reader;
+    app.window.FileReader = class {
+      constructor() { reader = this; }
+      readAsDataURL() {}
+    };
+    chooseFile(app.file('mark.png', 'image/png'));
+    reader.result = 'data:image/png;base64,mark';
+    reader.onload();
+    expect(images).toHaveLength(1);
+    app.$('set-color').value = '#3a7bd5';
+    app.$('set-color').dispatchEvent(new app.window.Event('input', { bubbles: true }));
+    app.window.HTMLCanvasElement.prototype.getContext = () => ({
+      drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([255, 0, 0, 255]) }),
+    });
+    images[0].naturalWidth = 64;
+    images[0].naturalHeight = 64;
+    images[0].onload();
+    await app.settle(1);
+    expect(app.window.MediaSettings.prefs.color).toBe('#3a7bd5');
+    expect(gold('--gold')).toBe('rgb(58, 123, 213)');
+  });
+
   it('shows the built-in mark by default', async () => {
     app = await createApp();
     expect(logo().hidden).toBe(false);
